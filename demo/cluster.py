@@ -103,6 +103,7 @@ def fun_simi(c1, c2, graph, povit_points, neighbor_indexs, si):
             res = min(factor1, factor2)
         else:
             res = 0
+
     return res
 
 
@@ -141,19 +142,35 @@ def merge(graph, subgraph, K, si, povit_points, neighbor_indexs, data):
         else:
             povit_points.append(item[0])
 
+    if len(res_cluster) < K:
+        return cut(res_cluster, K, neighbor_indexs, data)
+
+    n = len(res_cluster)
+    dm = np.ones((n, n)) * (-2)
+    for i in range(n):
+        for j in range(i + 1, n):
+            dm[i][j] = fun_simi(res_cluster[i], res_cluster[j], graph, povit_points, neighbor_indexs, si)
+
     while len(res_cluster) > K:
-        n = len(res_cluster)
-        dm = np.ones((n, n)) * (-2)
-
-        for i in range(n):
-            for j in range(i+1, n):
-                dm[i][j] = fun_simi(res_cluster[i], res_cluster[j], graph, povit_points, neighbor_indexs, si)
-
         maxsi = np.amax(dm)
         maxsi_index = np.where(dm >= maxsi)
         rc_i, rc_j = (maxsi_index[0][0], maxsi_index[1][0]) if len(maxsi_index[0]) <= 1 else sec_screen(maxsi_index, res_cluster, data)
         res_cluster[rc_i].extend(res_cluster.pop(rc_j))
-        plot_points_withlabel(data, res_cluster, type='cluster')
+        print('.', end='')
+
+        if len(res_cluster) <= K:
+            break
+        if rc_i >= rc_j:
+            print('Error: rc_i >= rc_j')
+
+        dm = np.delete(dm, rc_j, axis=0)
+        dm = np.delete(dm, rc_j, axis=1)
+        for i in range(len(res_cluster)):
+            if i < rc_i:
+                dm[i][rc_i] = fun_simi(res_cluster[i], res_cluster[rc_i], graph, povit_points, neighbor_indexs, si)
+            elif i > rc_i:
+                dm[rc_i][i] = fun_simi(res_cluster[i], res_cluster[rc_i], graph, povit_points, neighbor_indexs, si)
+
 
     return res_cluster
 
@@ -164,8 +181,7 @@ def fun_cutstd(subcluster, neighbor_indexs):
 
     adjacency_list = []
     for p in subcluster:
-        list = [subcluster.index(str(nei)) for nei in neighbor_indexs[int(p)] if str(nei) in subcluster]
-        adjacency_list.append(list)
+        adjacency_list.append([subcluster.index(str(nei)) for nei in neighbor_indexs[int(p)] if str(nei) in subcluster])
     edgecuts, parts = pymetis.part_graph(2, adjacency_list)
 
     return edgecuts, parts
@@ -190,7 +206,6 @@ def cut(graph, K, neighbor_indexs, data):
             ens = [len(subc) for index, subc in enumerate(res_cluster) if index in minec_index[0]]
             minen = np.amin(ens)
             minen_index = np.where(ens <= minen)
-
             c_index = minec_index[0][minen_index[0][0]]
 
         parts = partcuts[c_index]
@@ -235,6 +250,8 @@ def assign_povit_points(res_subgraph, povit_points, data):
                 ops.append(povit_points[opi])
         for op in ops:
             povit_points.remove(op)
+        if len(povit_points)%50 == 0:
+            print('.', end='')
 
     return res_subgraph
 
@@ -249,13 +266,14 @@ def cluster(data, K, ka=10, la=1, si=(1/np.power(2, 0.5))):
         print('Warning: N>k: k will be reset as N.')
         k = n_rows
 
+    print('Clustering.', end='')
     points = [i for i in range(n_rows)]
     KNN_graph, neighbor_indexs, distance_withneighbor, k_dists = build_KNN_graph(data, n_rows, k)
     Dx = [(np.mean([k_dists[p] for p in neighbor_indexs[i]]) / k_dists[i]) for i in points]
     povit_points = [i for i in points if Dx[i] < la]
     KNN_graph_splitted = split_KNN_graph(KNN_graph, povit_points)
-
     subgraph = list(nx.connected_components(KNN_graph_splitted))
+
     if len(subgraph) == K:
         res_subgraph = [list(map(int, item)) for item in subgraph]
     else:
@@ -264,5 +282,6 @@ def cluster(data, K, ka=10, la=1, si=(1/np.power(2, 0.5))):
     cluster_label = np.zeros(n_rows)
     for index, clu in enumerate(res_cluster):
         cluster_label[clu] = (index+1)
+    print('\nDone')
 
     return res_cluster, cluster_label
